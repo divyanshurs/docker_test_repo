@@ -34,42 +34,46 @@ class subandpub
     // ROS_INFO("Imu Orientation x: [%f], y: [%f], z: [%f], w: [%f]", msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w);
     boost::array<double, 9> covar = msg->orientation_covariance;
     boost::array<double, 9> covar_acc = msg->orientation_covariance;
-    geometry_msgs::Quaternion quat = msg->orientation;
-    tf::Quaternion q(quat.x, quat.y, quat.z, quat.w);
-    tf::Matrix3x3 m(q);
-    double roll, pitch, yaw;
-    m.getRPY(roll, pitch, yaw);
-    // std::cout << "Roll: " << roll*180/M_PI << ", Pitch: " << pitch*180/M_PI << ", Yaw: " << yaw*180/M_PI << std::endl;
-    if(flag==false)
-    {
-      roll_ref = roll;
-      pitch_ref = pitch;
-      yaw_ref = yaw;
-      roll,pitch,yaw=0;
-      flag = true;
-    }
-    else{
-      roll-= roll_ref;
-      pitch-= pitch_ref;
-      yaw-= yaw_ref;
-      if(yaw>360*M_PI/180) yaw -=  360*M_PI/180;
-      if(yaw<-360*M_PI/180) yaw -=  360*M_PI/180;
+    boost::array<double, 9> covar_angv = msg->orientation_covariance;
+    // geometry_msgs::Quaternion quat = msg->orientation;
+    // tf::Quaternion q(quat.x, quat.y, quat.z, quat.w);
+    // tf::Matrix3x3 m(q);
+    // double roll, pitch, yaw;
+    // m.getRPY(roll, pitch, yaw);
+    // // std::cout << "Roll: " << roll*180/M_PI << ", Pitch: " << pitch*180/M_PI << ", Yaw: " << yaw*180/M_PI << std::endl;
+    // if(flag==false)
+    // {
+    //   roll_ref = roll;
+    //   pitch_ref = pitch;
+    //   yaw_ref = yaw;
+    //   roll,pitch,yaw=0;
+    //   flag = true;
+    // }
+    // else{
+    //   roll-= roll_ref;
+    //   pitch-= pitch_ref;
+    //   yaw-= yaw_ref;
+    //   if(yaw>360*M_PI/180) yaw -=  360*M_PI/180;
+    //   if(yaw<-360*M_PI/180) yaw -=  360*M_PI/180;
 
-    }
-    tf::Quaternion pubq;
-    pubq.setRPY(roll, pitch,yaw);
-    geometry_msgs::Quaternion pubg;
-    tf::quaternionTFToMsg(pubq,pubg);
-    // std::cout << bla[0] << std::endl;
+    // }
+    // tf::Quaternion pubq;
+    // pubq.setRPY(roll, pitch,yaw);
+    // geometry_msgs::Quaternion pubg;
+    // tf::quaternionTFToMsg(pubq,pubg);
+    // // std::cout << bla[0] << std::endl;
     covar[0] = 2*1e-5;
     covar[4] = 2*1e-5;
     covar[8] = 2*1e-5;
-    covar_acc[0] = 0.001;
-    covar_acc[4] = 0.001;
-    covar_acc[8] = 0.001;
+    covar_acc[0] = 1;
+    covar_acc[4] = 1;
+    covar_acc[8] = 1;
+    covar_angv[0] = 1;
+    covar_angv[4] = 1;
+    covar_angv[8] = 1;
     new_msg = *msg;
     new_msg.orientation_covariance = covar;
-    new_msg.angular_velocity_covariance = covar;
+    new_msg.angular_velocity_covariance = covar_angv;
     new_msg.linear_acceleration_covariance = covar_acc;
     new_msg.header.stamp = ros::Time::now();
     // new_msg.orientation = pubg;
