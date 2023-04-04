@@ -1,95 +1,107 @@
-#include "ros/ros.h"
-#include "sensor_msgs/Imu.h"
-#include <boost/shared_ptr.hpp>
-#include <boost/make_shared.hpp>
-#include <geometry_msgs/Quaternion.h>
-#include <tf/transform_datatypes.h>
-#include <math.h>
-// void chatterCallback(const sensor_msgs::Imu::ConstPtr& msg)
-// {
-//   ROS_INFO("Imu Seq: [%d]", msg->header.seq);
-//   ROS_INFO("Imu Orientation x: [%f], y: [%f], z: [%f], w: [%f]", msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w);
-// }
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+#include "sensor_msgs/msg/nav_sat_fix.hpp"
 
-class subandpub
+using namespace std::chrono_literals;
+using std::placeholders::_1;
+
+/* This example creates a subclass of Node and uses std::bind() to register a
+* member function as a callback from the timer. */
+
+class MinimalPublisher : public rclcpp::Node
 {
   public:
-  ros::Subscriber sub;
-  ros::Publisher pub;
-  ros::NodeHandle n;
-  bool flag;
-  double roll_ref, pitch_ref, yaw_ref;
+    MinimalPublisher()
+    : Node("minimal_publisher"), count_(0)
+    {
+      publisher_ = this->create_publisher<sensor_msgs::msg::Imu>("/imu/use", 10);
+      gps_publisher_ = this->create_publisher<sensor_msgs::msg::NavSatFix>("/navsatfix/use", 10);
+      timer_ = this->create_wall_timer(500ms, std::bind(&MinimalPublisher::timer_callback, this));
+      subscription_ = this->create_subscription<sensor_msgs::msg::Imu>(
+        "/imu/data", 10, std::bind(&MinimalPublisher::topic_callback, this, _1));
+      gps_subscription_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+        "/navsatfix", 10, std::bind(&MinimalPublisher::gps_callback, this, _1));
+    }
 
-  subandpub()
-  {
-    sub = n.subscribe("/imu/data", 10, &subandpub::chatterCallback, this);
-    pub = n.advertise<sensor_msgs::Imu>("/imu/use", 10);
-    flag = false;
-  }
+  private:
 
-  void chatterCallback(const sensor_msgs::Imu::ConstPtr& msg)
-  {
-    // ROS_INFO("Imu Seq: [%d]", msg->header.seq);
-    sensor_msgs::Imu new_msg;
-    // ROS_INFO("Imu Orientation x: [%f], y: [%f], z: [%f], w: [%f]", msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w);
-    boost::array<double, 9> covar = msg->orientation_covariance;
-    boost::array<double, 9> covar_acc = msg->orientation_covariance;
-    boost::array<double, 9> covar_angv = msg->orientation_covariance;
-    // geometry_msgs::Quaternion quat = msg->orientation;
-    // tf::Quaternion q(quat.x, quat.y, quat.z, quat.w);
-    // tf::Matrix3x3 m(q);
-    // double roll, pitch, yaw;
-    // m.getRPY(roll, pitch, yaw);
-    // // std::cout << "Roll: " << roll*180/M_PI << ", Pitch: " << pitch*180/M_PI << ", Yaw: " << yaw*180/M_PI << std::endl;
-    // if(flag==false)
-    // {
-    //   roll_ref = roll;
-    //   pitch_ref = pitch;
-    //   yaw_ref = yaw;
-    //   roll,pitch,yaw=0;
-    //   flag = true;
-    // }
-    // else{
-    //   roll-= roll_ref;
-    //   pitch-= pitch_ref;
-    //   yaw-= yaw_ref;
-    //   if(yaw>360*M_PI/180) yaw -=  360*M_PI/180;
-    //   if(yaw<-360*M_PI/180) yaw -=  360*M_PI/180;
+    void topic_callback(const sensor_msgs::msg::Imu::SharedPtr msg) const
+    {
+        auto message = *msg;
+        std::array<double, 9> covar = msg->orientation_covariance;
+        std::array<double, 9> covar_acc = msg->orientation_covariance;
+        std::array<double, 9> covar_angv = msg->orientation_covariance;
+        covar[0] = 2*1e-5;
+        covar[4] = 2*1e-5;
+        covar[8] = 2*1e-5;
+        covar_acc[0] = 1;
+        covar_acc[4] = 1;
+        covar_acc[8] = 1;
+        covar_angv[0] = 1;
+        covar_angv[4] = 1;
+        covar_angv[8] = 1;
+        message.orientation_covariance = covar;
+        message.angular_velocity_covariance = covar_angv;
+        message.linear_acceleration_covariance = covar_acc;
+    //   RCLCPP_INFO(this->get_logger(), "I heard: '%s'", msg->data.c_str());
+        publisher_->publish(message);
+    }
+    void gps_callback(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+    {
+        auto message = *msg;
+        std::array<double, 9> gps_covar = msg->position_covariance;
+        double lat = msg->latitude;
+        double lon = msg->longitude;
+        if(abs(gps_covar[0])>1000 || abs(lat) > 180 || abs(lon) >180)
+        {
+            lat = lat_old_;
+            lon = lon_old_;
+            std::array<double, 9> gps_covar_new;
+            gps_covar_new[0]= 10000;
+            gps_covar_new[4]= 10000;
+            gps_covar_new[8]= 10000;
+            gps_covar = gps_covar_new;
+            // std::cout << "JUMP at time" << rclcpp::Clock{RCL_ROS_TIME}.now().seconds()<< std::endl;
+            // std::cout << "lat" << " " << lat << std::endl;
+            // std::cout << "lon" << " " << lon << std::endl;
+            // std::cout << "gps_covar[0]" << " " << gps_covar[0] << std::endl;
+        }
+        else
+        {
+            lat_old_ = lat;
+            lon_old_ = lon;
+        }
+        message.latitude = lat;
+        message.longitude = lon;
+        message.position_covariance = gps_covar;
+        gps_publisher_->publish(message);
+    }
 
-    // }
-    // tf::Quaternion pubq;
-    // pubq.setRPY(roll, pitch,yaw);
-    // geometry_msgs::Quaternion pubg;
-    // tf::quaternionTFToMsg(pubq,pubg);
-    // // std::cout << bla[0] << std::endl;
-    covar[0] = 2*1e-5;
-    covar[4] = 2*1e-5;
-    covar[8] = 2*1e-5;
-    covar_acc[0] = 1;
-    covar_acc[4] = 1;
-    covar_acc[8] = 1;
-    covar_angv[0] = 1;
-    covar_angv[4] = 1;
-    covar_angv[8] = 1;
-    new_msg = *msg;
-    new_msg.orientation_covariance = covar;
-    new_msg.angular_velocity_covariance = covar_angv;
-    new_msg.linear_acceleration_covariance = covar_acc;
-    new_msg.header.stamp = ros::Time::now();
-    // new_msg.orientation = pubg;
-    pub.publish(new_msg);
-  }
-
+    void timer_callback()
+    {
+    //   auto message = sensor_msgs::msg::Imu();
+    //   message.data = "Hello, world! " + std::to_string(count_++);
+    //   RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
+    //   publisher_->publish(message);
+    }
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
+    rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr gps_publisher_;
+    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr subscription_;
+    rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr gps_subscription_;
+    double lat_old_, lon_old_;
+    size_t count_;
 };
 
-int main(int argc, char **argv)
+int main(int argc, char * argv[])
 {
-  ros::init(argc, argv, "imu_listener");
-  ros::NodeHandle n;
-  std::shared_ptr<subandpub> obj = std::make_shared<subandpub>();
-
-
-  ros::spin();
-
+  rclcpp::init(argc, argv);
+  rclcpp::spin(std::make_shared<MinimalPublisher>());
+  rclcpp::shutdown();
   return 0;
 }
